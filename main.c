@@ -1,45 +1,16 @@
-#include <stdio.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/ioctl.h>
-#include <fcntl.h>
-#include <linux/fs.h>
-#include <errno.h>
-#include <string.h>
-#include <termio.h>
-#include <termios.h>
-#include <pthread.h>
-#include <sys/sem.h>
-#include <time.h>
-#include <sys/shm.h>
-#include <sys/ipc.h>
+#include "main.h"
 
-#include <sys/socket.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <pthread.h>
+unsigned char CheckSum(unsigned char *uBuff, int uBuffLen)
+{
 
-#define DEBUG
-#define msleep(n)		usleep(1000*n)
-#define ERROR			-1
-#define BACKLOG			20
-
-#define		R2000_INVENTORYINFINITE		0X88
-#define 	R2000_STOPINVENTORY		0x40
-
-static unsigned char wBuf[1024],rBuf[8192];
-
-static int speed_arr[] = {B230400, B115200, B57600, B38400, B19200, B9600, B4800, B2400, B1200, B300,
-		   B38400, B19200, B9600, B4800, B2400, B1200, B300};
-
-static int name_arr[] = {230400, 115200, 57600, 38400, 19200, 9600, 4800, 2400, 1200, 300,
-		  38400, 19200, 9600, 4800, 2400, 1200, 300};
-static int server_fd;
-static int client_fd;
-static int serial_port_fd;
+     unsigned char i,uSum=0;
+     for(i=0;i<uBuffLen;i++)
+     {
+          uSum = uSum + uBuff[i];
+     }
+     uSum = (~uSum) + 1;
+     return uSum;
+}
 
 int openSerialPort(const char *devName,unsigned int baudrate)
 {
@@ -86,100 +57,7 @@ void closeSerialPort(int fd)
 	}
 }
 
-void R2000_Send(int fd,unsigned char *Uart_Send_Buf,unsigned int length)
-{
-//	tcflush(fd,TCIOFLUSH);
-	int w = write(fd,Uart_Send_Buf,length);
-#if 0
-	printf("client_fd = %d, fd = %d\n",client_fd,fd);
-	if(client_fd > 0)
-	{
-		write(client_fd,Uart_Send_Buf,length);
-	}
-#endif	
-#if 0
-	printf("R2000_Send w = %d\n",w);
-	int i;
-	printf("R2000_Send ");
-	for(i = 0; i < length; i++)
-	{
-//		write(fd,Uart_Send_Buf[i],1);
-		printf("%02X ",Uart_Send_Buf[i]);
-	}
-	printf("\n");
-#endif
-}
 
-void AppEntry_R2000WriteRegister(int fd,unsigned char AddressLow,unsigned char AddressHigh,
-unsigned char Data1,unsigned char Data2,unsigned char Data3,unsigned char Data4)/*写入寄存器操作*/
-{
-	printf(" AppEntry_R2000WriteRegister \n");
-	unsigned char Uart_Send_Buf[8]={0};
-	Uart_Send_Buf[0]=0x01;
-	Uart_Send_Buf[1]=0x00;
-	Uart_Send_Buf[2]=AddressLow;
-	Uart_Send_Buf[3]=AddressHigh;
-	Uart_Send_Buf[4]=Data1;
-	Uart_Send_Buf[5]=Data2;
-	Uart_Send_Buf[6]=Data3;
-	Uart_Send_Buf[7]=Data4; 
-
-	R2000_Send(fd,Uart_Send_Buf,8);
-
-}
-
-void AppEntry_StopInventory(int fd)/*停止读卡*/
-{
-	printf(" AppEntry_StopInventory \n");
-	unsigned char Uart_Send_Buf[8]={0};
-	Uart_Send_Buf[0]=0x40;
-	Uart_Send_Buf[1]=0x01;
-	Uart_Send_Buf[2]=0x00;
-	Uart_Send_Buf[3]=0x00;
-	Uart_Send_Buf[4]=0x00;
-	Uart_Send_Buf[5]=0x00;
-	Uart_Send_Buf[6]=0x00;
-	Uart_Send_Buf[7]=0x00;
-	
-	R2000_Send(fd,Uart_Send_Buf,8);
-
-}
-
-
-
-void AppEntry_R2000CommandExcute(int fd,unsigned char R2000_Command)/*执行命令函数*/
-{
-	printf(" AppEntry_R2000CommandExcute \n");
-	unsigned char Uart_Send_Buf[8]={0};
-	
-	Uart_Send_Buf[0]=0x01;
-	Uart_Send_Buf[1]=0x00;
-	Uart_Send_Buf[2]=0x00;
-	Uart_Send_Buf[3]=0xF0;
-	Uart_Send_Buf[4]=R2000_Command;
-	Uart_Send_Buf[5]=0x00;
-	Uart_Send_Buf[6]=0x00;
-	Uart_Send_Buf[7]=0x00;
-	
-	R2000_Send(fd,Uart_Send_Buf,8);
-}
-
-void AppEntry_R2000(int fd ,unsigned char entry)
-{
-	switch(entry)
-		{
-			case R2000_STOPINVENTORY:/*Stop Inventory A0 02 40 1E*/
-				AppEntry_StopInventory(fd);
-				break;
-			case R2000_INVENTORYINFINITE:/*Inventory Infinite Cycle*/
-				//AppEntry_R2000WriteRegister(0x0D,0x01,0x00,0x00,0x00,0x00);
-				//AppEntry_R2000WriteRegister(0x0E,0x01,0x00,0x00,0x00,0x00);
-				AppEntry_R2000WriteRegister(fd,0x00,0x07,0xFF,0xFF,0x00,0x00);
-				AppEntry_R2000CommandExcute(fd,0x0F);
-				break;
-
-		}
-}
 
 int readPortConf()
 {
@@ -206,16 +84,14 @@ void *thread_uart()
 	int retval;
 	fd_set rfds;
 	struct timeval tv;
-	printf("in uart thread serial_port_fd = %d\n",serial_port_fd);
 	while(1)
 	{
-		memset(rBuf,0,8192);
+		memset(rBuf,0,MAXSIZE);
 		tv.tv_sec = 1;//set the rcv wait time
 		tv.tv_usec =5000;//100000us = 0.1s
 		FD_ZERO(&rfds);
 	   	FD_SET(serial_port_fd,&rfds);
 	  	retval = select(serial_port_fd+1,&rfds,NULL,NULL,&tv);
-		printf("in uart thread retval = %d\n",retval);
 		if(retval)
 		{	
 			int rs;		
@@ -224,18 +100,21 @@ void *thread_uart()
 			{
 				if(rBuf[0] == 0x01)
 				{
-					usleep(1000*20);
+//					usleep(1000*20);
 					rs = read(serial_port_fd,rBuf+1,7);
 					if(rs == 7)
 					{
 						bufLen = (rBuf[4]+rBuf[5]*0xff)*4;
 						printf("bufLen is %d \n",bufLen);
-						usleep(1000*20);
+						usleep(1000);
 						rs = read(serial_port_fd,rBuf+8,bufLen);
-						if(rs == bufLen)
+						if((rs == bufLen) && (bufLen < MAXSIZE - 8))
 						{
 							if(client_fd > 0)
-							write(client_fd,rBuf,bufLen + 8);
+							{
+							//write(client_fd,rBuf,bufLen + 8);
+								Packets_Dat(client_fd,rBuf);
+							}
 						}
 						else
 						{
@@ -247,10 +126,6 @@ void *thread_uart()
 						printf("in uart thread read 7 bytes failed! rs = %d\n",rs);
 					}
 				}
-				else
-				{
-//					tcflush(serial_port_fd,TCIFLUSH);
-				}
 			}
 			else
 			{
@@ -258,7 +133,7 @@ void *thread_uart()
 			}
 
 			retval = 0;	
-#ifdef DEBUG1			
+#if	0		
 			int i;
 			for(i = 0; i < bufLen + 8; i++)
 			printf("%02X ",rBuf[i]);
@@ -268,8 +143,7 @@ void *thread_uart()
 		}
 		else 
 		{
-//			if(client_fd > 0)
-//				write(client_fd,"123 ",sizeof("123"));
+			printf("## in uart thread no data ,retval = %d\n",retval);
 		}
 	}
 	printf("exit uart thread\n");
@@ -277,7 +151,7 @@ void *thread_uart()
 
 void *thread_socket()
 {
-	char buffers[1024];
+	char buffers[MAXSIZE];
 	struct sockaddr_in server_addr,client_addr;
 	int sin_size,recvbytes;
 	int port = readPortConf();
@@ -285,8 +159,8 @@ void *thread_socket()
 //creat
 	if((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
 	{
-		printf("creat socket failed \n");
-		exit(1);
+		perror("creat socket failed");
+		exit(EXIT_FAILURE);
 	}
 	printf("socket success ! server_fd = %d\n",server_fd);
 
@@ -307,7 +181,7 @@ void *thread_socket()
 //bind
 	if(bind(server_fd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) < 0)
 	{
-		printf("bind failed \n");
+		perror("bind failed");
 		exit(EXIT_FAILURE);
 	}
 	printf("bind success !\n");
@@ -315,7 +189,7 @@ void *thread_socket()
 //listen
 	if(listen(server_fd,BACKLOG) == -1)
 	{
-		printf("listen failed \n");
+		perror("listen failed");
 		exit(EXIT_FAILURE);
 	}
 	printf("listen ....\n");
@@ -325,32 +199,51 @@ void *thread_socket()
 	{
 		if((client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &sin_size)) == -1)
 		{
-			printf("accept failed \n");
+			perror("accept failed");
 			exit(1);
 		}
-		printf("client_fd = %d\n",client_fd);
+//		printf("client_fd = %d\n",client_fd);
 		int i, len;
 		char socket_buf[100];
 		while(1)
 		{
-			len = read( client_fd, socket_buf, 100);
+			len = read( client_fd, socket_buf, MAXSIZE);
 			if(len <= 0)
 			{
-				printf("recive data from socket fail !\n");
 				perror("recvfrom:");
 				close(client_fd);
 				client_fd = 0;
 				break;
-//				exit(EXIT_FAILURE);
 			}
 			else
 			{
 				printf("\nrecieve data from socket sueccess, data_len= %d\n",len);
 				for(i=0;i<len;i++)
 				{
-					printf("%c",socket_buf[i]);
+					printf("%02X ",socket_buf[i]);
 				}
 				printf("\n");
+				if(check_from_socket_data(socket_buf,len) == 0)
+				{
+					switch(socket_buf[2])
+					{
+						case R2000_INVENTORYINFINITE :
+							printf(" CMD : R2000_INVENTORYINFINITE\n");
+							AppEntry_R2000(serial_port_fd,R2000_INVENTORYINFINITE);
+							break;
+						case R2000_STOPINVENTORY :
+							printf(" CMD : R2000_STOPINVENTORY\n");
+							AppEntry_R2000(serial_port_fd,R2000_STOPINVENTORY);
+							break;
+						default:
+							printf("Other CMD \n");
+					}
+				}
+				else
+				{
+					printf("\nsocket : recieve data of invalid !\n ");
+				}
+#if 0
 				if(memcmp(socket_buf,"start",5) == 0)
 				{
 					printf("socket : start\n");
@@ -360,22 +253,19 @@ void *thread_socket()
 					printf("socket :stop\n");
 					AppEntry_R2000(serial_port_fd,R2000_STOPINVENTORY);
 				}
-#if 0
-				len = write(fd_uart, socket_buf, len);    //send the data recived from socket to uart1
-				if(len < 0)
-				{
-					printf("\nwrite data to uart fail\n");
-				}
-				else
-				{
-					printf("\nwrite data to uart success,data_len=%d\n",len);
-				}
 #endif
 			}
 		}
 	}
 	close(server_fd);
 	printf("exit uart thread\n");
+}
+
+int check_from_socket_data(unsigned char *buff , unsigned int length)
+{
+	if((buff[0] == 0xA0) && (buff[length - 1] == CheckSum(buff,length - 1)))
+		return 0;
+	else	return -1;	
 }
 
 int main()
@@ -390,7 +280,7 @@ int main()
 		perror("open serialport failed !\n");
 		exit(EXIT_FAILURE);
 	}
-	printf("serial_port_fd  = %d \n",serial_port_fd );
+//	printf("serial_port_fd  = %d \n",serial_port_fd );
 
 	res=pthread_create( &socket_thread, NULL, thread_socket, 0 );
 	if(res != 0){
@@ -416,40 +306,6 @@ int main()
 		exit(EXIT_FAILURE);
 	}
 
-#if 0
-	fd = openSerialPort("/dev/ttySAC3",115200);
-	if (fd < 0) 
-	{
-		printf("open serialport failed !\n");
-		exit(1);
-	}
-
-	
-	AppEntry_R2000(fd,R2000_INVENTORYINFINITE);
-	msleep(500);
-
-	while(1)
-	{
-		readLength = read(fd,rBuf,1024);
-		if(readLength > 0)
-		{
-			printf("readLength is %d \n",readLength);
-			for(i = 0; i < readLength; i++)
-			printf("%02X ",rBuf[i]);
-			printf("\n");
-		}
-		msleep(500);
-		j++;
-		if(j > 20) break;
-	}
-
-
-//	readData(fd);
-	msleep(5000);
-	AppEntry_R2000(fd,R2000_STOPINVENTORY);	
-//	readData(fd);
-	closeSerialPort(fd);
-#endif
 	closeSerialPort(serial_port_fd);
 	printf("main exit\n");
 	return 0;

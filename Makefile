@@ -19,12 +19,12 @@ endif
 
 CCFLAGS = -O2
 LDFLAGS = -lpthread
-OBJECTS=main.o
+OBJECTS=main.o r2000.c
 EXPORT_NAME=r2000_test
 
 $(EXPORT_NAME):$(OBJECTS)
 	$(CC) $(LDFLAGS) -o $(EXPORT_NAME) $(OBJECTS)
-	cp -f $(EXPORT_NAME) $(INSTALL_DIR)
+#	cp -f $(EXPORT_NAME) $(INSTALL_DIR)
 	cp -f $(EXPORT_NAME) $(EXTENT_DIR)
 	cp -f $(EXPORT_NAME) $(ROOT_FS)
 
